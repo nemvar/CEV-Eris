@@ -251,3 +251,72 @@ proc/Reload_gun()
 var/brigArea
 ```
 ***
+
+# Dream Maker Quirks/Tricks
+Like all languages, Dream Maker has its quirks, some of them are beneficial to us, like these
+
+#### In-To for-loops
+```for(var/i = 1, i <= some_value, i++)``` is a fairly standard way to write an incremental for loop in most languages (especially those in the C family), but DM's ```for(var/i in 1 to some_value)``` syntax is oddly faster than its implementation of the former syntax; where possible, it's advised to use DM's syntax. (Note, the ```to``` keyword is inclusive, so it automatically defaults to replacing ```<=```; if you want ```<``` then you should write it as ```1 to some_value-1```).
+
+HOWEVER, if either ```some_value``` or ```i``` changes within the body of the for (underneath the ```for(...)``` header) or if you are looping over a list AND changing the length of the list then you can NOT use this type of for-loop!
+
+#### for(var/A in list) VS for(var/i in 1 to list.len)
+The former is faster than the latter, as shown by the following profile results:
+https://file.house/zy7H.png
+Code used for the test in a readable format:
+https://pastebin.com/w50uERkG
+***
+
+#### Istypeless for loops
+A name for a differing syntax for writing for-each style loops in DM. It's NOT DM's standard syntax, hence why this is considered a quirk. Take a look at this:
+```DM
+var/list/bag_of_items = list(sword, apple, coinpouch, sword, sword)
+var/obj/item/sword/best_sword
+for(var/obj/item/sword/S in bag_of_items)
+	if(!best_sword || S.damage > best_sword.damage)
+		best_sword = S
+```
+The above is a simple proc for checking all swords in a container and returning the one with the highest damage, and it uses DM's standard syntax for a for-loop by specifying a type in the variable of the for's header that DM interprets as a type to filter by. It performs this filter using ```istype()``` (or some internal-magic similar to ```istype()``` - this is BYOND, after all). This is fine in its current state for ```bag_of_items```, but if ```bag_of_items``` contained ONLY swords, or only SUBTYPES of swords, then the above is inefficient. For example:
+```DM
+var/list/bag_of_swords = list(sword, sword, sword, sword)
+var/obj/item/sword/best_sword
+for(var/obj/item/sword/S in bag_of_swords)
+	if(!best_sword || S.damage > best_sword.damage)
+		best_sword = S
+```
+specifies a type for DM to filter by. 
+
+With the previous example that's perfectly fine, we only want swords, but here the bag only contains swords? Is DM still going to try to filter because we gave it a type to filter by? YES, and here comes the inefficiency. Wherever a list (or other container, such as an atom (in which case you're technically accessing their special contents list, but that's irrelevant)) contains datums of the same datatype or subtypes of the datatype you require for your loop's body,
+you can circumvent DM's filtering and automatic ```istype()``` checks by writing the loop as such:
+```DM
+var/list/bag_of_swords = list(sword, sword, sword, sword)
+var/obj/item/sword/best_sword
+for(var/s in bag_of_swords)
+	var/obj/item/sword/S = s
+	if(!best_sword || S.damage > best_sword.damage)
+		best_sword = S
+```
+Of course, if the list contains data of a mixed type then the above optimisation is DANGEROUS, as it will blindly typecast all data in the list as the specified type, even if it isn't really that type, causing runtime errors.
+***
+
+#### Dot variable
+Like other languages in the C family, DM has a ```.``` or "Dot" operator, used for accessing variables/members/functions of an object instance.
+eg:
+```DM
+var/mob/living/carbon/human/H = YOU_THE_READER
+H.gib()
+```
+However, DM also has a dot variable, accessed just as ```.``` on its own, defaulting to a value of null. Now, what's special about the dot operator is that it is automatically returned (as in the ```return``` statement) at the end of a proc, provided the proc does not already manually return (```return count``` for example.) Why is this special?
+
+With ```.``` being everpresent in every proc, can we use it as a temporary variable? Of course we can! However, the ```.``` operator cannot replace a typecasted variable - it can hold data any other var in DM can, it just can't be accessed as one, although the ```.``` operator is compatible with a few operators that look weird but work perfectly fine, such as: ```.++``` for incrementing ```.'s``` value, or ```.[1]``` for accessing the first element of ```.```, provided that it's a list.
+***
+
+#### Startup/Runtime tradeoffs with lists and the "hidden" init proc
+First, read the comments in [this BYOND thread](http://www.byond.com/forum/?post=2086980&page=2#comment19776775), starting where the link takes you.
+
+There are two key points here:
+
+1) Defining a list in the variable's definition calls a hidden proc - init. If you have to define a list at startup, do so in New() (or preferably Initialize()) and avoid the overhead of a second call (Init() and then New())
+
+2) It also consumes more memory to the point where the list is actually required, even if the object in question may never use it!
+***
